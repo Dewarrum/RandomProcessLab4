@@ -1,7 +1,7 @@
 import { Entity } from "./entity";
 import { PortEvent } from "./portEvent";
 import { EntityGenerator } from "./entityGenerator";
-import { EventQueue, EventService, Queue } from "./queue";
+import { EventQueue, EventService, Queue, EventArgs } from "./queue";
 import { EvenRandomValueGenerator, EvenRandomValueGeneratorArgs } from "./randomValueGenerator";
 
 export class Tanker extends Entity {}
@@ -11,10 +11,16 @@ export class TankerEvent extends PortEvent {
         return this._type;
     }
 
+    public get tanker(): Tanker {
+        return this._tanker;
+    }
+
     constructor(estimatedTime: number, private _type: EventType, private _tanker: Tanker) {
         super(estimatedTime);
     }
 }
+
+export class TankerEventArgs extends EventArgs<Tanker> {}
 
 export enum EventType {
     Add,
