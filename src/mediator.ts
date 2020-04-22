@@ -100,9 +100,7 @@ export class Mediator {
 
     private setupInitialState(): void {
         const estimatedTime = this._tankerEventService.calculateNextEventTime();
-        const event = new TankerEvent(estimatedTime);
-
-        this._tankerEventQueue.push(event);
+        this.scheduleNewTankerEvent(estimatedTime);
 
         const processingLineGenerator = new EntityGenerator<ProcessingLine>(ProcessingLine);
 
@@ -141,7 +139,7 @@ export class Mediator {
     }
 
     private scheduleNewTankerEvent(estimatedTime: number): void {
-        const event = new TankerEvent(estimatedTime);
+        const event = new TankerEvent(estimatedTime, EventType.Add, this.tankerGenerator.newInstance());
         this._tankerEventQueue.push(event);
     }
 

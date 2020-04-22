@@ -6,7 +6,15 @@ import { EvenRandomValueGenerator, EvenRandomValueGeneratorArgs } from "./random
 
 export class Tanker extends Entity {}
 
-export class TankerEvent extends PortEvent {}
+export class TankerEvent extends PortEvent {
+    public get type(): EventType {
+        return this._type;
+    }
+
+    constructor(estimatedTime: number, private _type: EventType, private _tanker: Tanker) {
+        super(estimatedTime);
+    }
+}
 
 export enum EventType {
     Add,
