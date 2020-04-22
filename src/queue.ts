@@ -18,8 +18,8 @@ export class EventArgs<T> {
 }
 
 export enum QueueEventState {
-    Idle,
-    Working
+    Idle = "Idle",
+    Working = "Working"
 }
 
 export class Queue<T> {

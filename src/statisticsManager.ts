@@ -1,4 +1,4 @@
-import { EventArgs } from "./queue";
+import { EventArgs, Queue, QueueEventState } from "./queue";
 import { Entity } from "./entity";
 import { TankerEventArgs } from "./tanker";
 import { globalTimeProvider } from "./gloabalTime";
@@ -14,6 +14,7 @@ export class StatisticsManager {
 
     public handleQueueEvent(args: EventArgs<Entity>) {
         if (args instanceof TankerEventArgs) {
+            this.tankerCount++;
         } else if (args.entity instanceof Tow) {
             const towStats = this.getOrCreateTowStatistics(args.entity.id);
             const previousState = _(towStats.states).last();
@@ -37,12 +38,44 @@ export class StatisticsManager {
         }
     }
 
+    public processCollectedData(): void {
+        _(this.processingLineStatistics).each(statistics => {
+            const lastState = _(statistics.states).last();
+            lastState.duration = globalTimeProvider.globalTime - lastState.time;
+
+            statistics.idleTime = _(statistics.states)
+                .filter(s => s.name == QueueEventState.Idle.toString())
+                .map(s => s.duration)
+                .sum();
+
+            statistics.workingTime = _(statistics.states)
+                .filter(s => s.name == QueueEventState.Working.toString())
+                .map(s => s.duration)
+                .sum();
+        });
+
+        _(this.towStatistics).each(statistics => {
+            const lastState = _(statistics.states).last();
+            lastState.duration = globalTimeProvider.globalTime - lastState.time;
+
+            statistics.idleTime = _(statistics.states)
+                .filter(s => s.name == QueueEventState.Idle.toString())
+                .map(s => s.duration)
+                .sum();
+
+            statistics.workingTime = _(statistics.states)
+                .filter(s => s.name == QueueEventState.Working.toString())
+                .map(s => s.duration)
+                .sum();
+        });
+    }
+
     private getOrCreateTowStatistics(towId: number): TowStatistics {
-        return ServingEntityStatistics.createFrom(this.getOrCreateEntityStatistics(towId, this.towStatistics));
+        return this.getOrCreateEntityStatistics(towId, this.towStatistics);
     }
 
     private getOrCreateProcessingLineStatistics(processingLineId: number): ProcessingLineStatistics {
-        return ServingEntityStatistics.createFrom(this.getOrCreateEntityStatistics(processingLineId, this.processingLineStatistics));
+        return this.getOrCreateEntityStatistics(processingLineId, this.processingLineStatistics);
     }
 
     private getOrCreateEntityStatistics(entityId: number, source: ServingEntityStatistics[]): ServingEntityStatistics {
@@ -71,6 +104,9 @@ export class EntityStatistics {
 
 export class ServingEntityStatistics extends EntityStatistics {
     public states: State[];
+    public idleTime: number;
+    public workingTime: number;
+
     constructor(id: number) {
         super(id);
 
