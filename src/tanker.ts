@@ -8,6 +8,11 @@ export class Tanker extends Entity {}
 
 export class TankerEvent extends PortEvent {}
 
+export enum EventType {
+    Add,
+    Get
+}
+
 export class TankerGenerator extends EntityGenerator<Tanker> {
     constructor() {
         super(Tanker);

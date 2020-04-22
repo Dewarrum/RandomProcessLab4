@@ -1,6 +1,6 @@
 import { Entity } from "./entity";
 import { EntityGenerator } from "./entityGenerator";
-import { PortEvent, EventType } from "./portEvent";
+import { PortEvent } from "./portEvent";
 import { EventQueue, EventService, Queue } from "./queue";
 import { EvenRandomValueGenerator, EvenRandomValueGeneratorArgs } from "./randomValueGenerator";
 
@@ -11,8 +11,8 @@ export class TowEvent extends PortEvent {
         return this._tow;
     }
 
-    constructor(estimatedTime: number, type: EventType, private _tow: Tow) {
-        super(estimatedTime, type);
+    constructor(estimatedTime: number, private _tow: Tow) {
+        super(estimatedTime);
     }
 }
 

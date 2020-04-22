@@ -1,5 +1,5 @@
 import { Entity } from "./entity";
-import { EventType, PortEvent } from "./portEvent";
+import { PortEvent } from "./portEvent";
 import { EntityGenerator } from "./entityGenerator";
 import { EventQueue, EventService, Queue } from "./queue";
 import { EvenRandomValueGenerator, EvenRandomValueGeneratorArgs } from "./randomValueGenerator";
@@ -11,8 +11,8 @@ export class ProcessingLineEvent extends PortEvent {
         return this._processingLine;
     }
 
-    constructor(estimatedTime: number, type: EventType, private _processingLine: ProcessingLine) {
-        super(estimatedTime, type);
+    constructor(estimatedTime: number, private _processingLine: ProcessingLine) {
+        super(estimatedTime);
     }
 }
 

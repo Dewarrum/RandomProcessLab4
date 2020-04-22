@@ -1,9 +1,9 @@
 import { globalTimeProvider } from "./gloabalTime";
 import { EntityGenerator } from "./entityGenerator";
-import { Tanker, TankerEvent, TankerEventQueue, TankerEventService, TankerQueue } from "./tanker";
+import { Tanker, TankerEvent, TankerEventQueue, TankerEventService, TankerQueue, EventType } from "./tanker";
 import { ProcessingLine, ProcessingLineEvent, ProcessingLineEventQueue, ProcessingLineEventService, ProcessingLineQueue } from "./processingLine";
 import { Tow, TowEvent, TowEventQueue, TowEventService, TowQueue } from "./tow";
-import { EventType, PortEvent } from "./portEvent";
+import { PortEvent } from "./portEvent";
 import { Event } from "./event";
 import { EventArgs } from "./queue";
 import { Entity } from "./entity";
@@ -58,46 +58,40 @@ export class Mediator {
             const triggeredEvents = this.getEventsWithEstimatedTime(globalTimeProvider.globalTime);
             triggeredEvents.forEach(e => {
                 if (e instanceof TankerEvent) {
-                    if (e.type == EventType.Add) {
-                        const tanker = this.tankerGenerator.newInstance();
-                        this._tankerQueue.push(tanker);
+                    const tanker = this.tankerGenerator.newInstance();
+                    this._tankerQueue.push(tanker);
 
-                        if (this._processingLineQueue.any() && this._towQueue.any()) {
-                            const processingLine = this._processingLineQueue.pop();
-                            const tow = this._towQueue.pop();
-                            this._tankerQueue.pop();
+                    if (this._processingLineQueue.any() && this._towQueue.any()) {
+                        const processingLine = this._processingLineQueue.pop();
+                        const tow = this._towQueue.pop();
+                        this._tankerQueue.pop();
 
-                            this.handleTankerRefill(tow, processingLine);
-                        }
-
-                        const estimatedNewTankerEventTime = this._tankerEventService.calculateNextEventTime();
-                        this.scheduleNewTankerEvent(estimatedNewTankerEventTime);
+                        this.handleTankerRefill(tow, processingLine);
                     }
+
+                    const estimatedNewTankerEventTime = this._tankerEventService.calculateNextEventTime();
+                    this.scheduleNewTankerEvent(estimatedNewTankerEventTime);
                 } else if (e instanceof TowEvent) {
-                    if (e.type == EventType.Add) {
-                        let tow = e.tow;
-                        this._towQueue.push(tow);
+                    let tow = e.tow;
+                    this._towQueue.push(tow);
 
-                        if (this._tankerQueue.any() && this._processingLineQueue.any()) {
-                            const processingLine = this._processingLineQueue.pop();
-                            tow = this._towQueue.pop();
-                            this._tankerQueue.pop();
+                    if (this._tankerQueue.any() && this._processingLineQueue.any()) {
+                        const processingLine = this._processingLineQueue.pop();
+                        tow = this._towQueue.pop();
+                        this._tankerQueue.pop();
 
-                            this.handleTankerRefill(tow, processingLine);
-                        }
+                        this.handleTankerRefill(tow, processingLine);
                     }
                 } else if (e instanceof ProcessingLineEvent) {
-                    if (e.type == EventType.Add) {
-                        let processingLine = e.processingLine;
-                        this._processingLineQueue.push(processingLine);
+                    let processingLine = e.processingLine;
+                    this._processingLineQueue.push(processingLine);
 
-                        if (this._tankerQueue.any() && this._processingLineQueue.any()) {
-                            processingLine = this._processingLineQueue.pop();
-                            const tow = this._towQueue.pop();
-                            this._tankerQueue.pop();
+                    if (this._tankerQueue.any() && this._processingLineQueue.any()) {
+                        processingLine = this._processingLineQueue.pop();
+                        const tow = this._towQueue.pop();
+                        this._tankerQueue.pop();
 
-                            this.handleTankerRefill(tow, processingLine);
-                        }
+                        this.handleTankerRefill(tow, processingLine);
                     }
                 }
             });
@@ -106,7 +100,7 @@ export class Mediator {
 
     private setupInitialState(): void {
         const estimatedTime = this._tankerEventService.calculateNextEventTime();
-        const event = new TankerEvent(estimatedTime, EventType.Add);
+        const event = new TankerEvent(estimatedTime);
 
         this._tankerEventQueue.push(event);
 
@@ -125,12 +119,12 @@ export class Mediator {
     }
 
     private scheduleTowFreeEvent(estimatedTime: number, tow: Tow): void {
-        const event = new TowEvent(estimatedTime, EventType.Add, tow);
+        const event = new TowEvent(estimatedTime, tow);
         this._towEventQueue.push(event);
     }
 
     private scheduleProcessingLineFreeEvent(estimatedTime: number, processingLine: ProcessingLine): void {
-        const event = new ProcessingLineEvent(estimatedTime, EventType.Add, processingLine);
+        const event = new ProcessingLineEvent(estimatedTime, processingLine);
 
         this._processingLineEventQueue.push(event);
     }
@@ -147,7 +141,7 @@ export class Mediator {
     }
 
     private scheduleNewTankerEvent(estimatedTime: number): void {
-        const event = new TankerEvent(estimatedTime, EventType.Add);
+        const event = new TankerEvent(estimatedTime);
         this._tankerEventQueue.push(event);
     }
 
