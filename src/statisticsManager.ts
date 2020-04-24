@@ -5,16 +5,64 @@ import { globalTimeProvider } from "./gloabalTime";
 import { Tow } from "./tow";
 import * as _ from "lodash";
 import { ProcessingLine } from "./processingLine";
+import * as helpers from "./helpers";
 
 export class StatisticsManager {
     public tankerCount: number = 0;
+    public processedTankerCount: number = 0;
+    public unprocessedTankerCount: number = 0;
     public tankerStatistics: TankerStatistics[] = [];
     public towStatistics: TowStatistics[] = [];
     public processingLineStatistics: ProcessingLineStatistics[] = [];
+    public tankerLifecycles: TankerLifecycle[] = [];
 
     public handleQueueEvent(args: EventArgs<Entity>) {
         if (args instanceof TankerEventArgs) {
-            this.tankerCount++;
+            const tanker = args.entity;
+            const lifecycle = this.getOrCreateTankerLifecycle(tanker.id, this.tankerLifecycles);
+            switch (args.state) {
+                case QueueEventState.LeftSystem: {
+                    this.processedTankerCount++;
+                    helpers.logFireEvent(`Tanker #${tanker.id} left system at ${helpers.convertSecondsToHours(args.time)} h.`);
+
+                    lifecycle.leftSystemAt = args.time;
+                    lifecycle.towProcessTime += lifecycle.leftSystemAt - lifecycle.dispatchedByTowAt;
+
+                    break;
+                }
+                case QueueEventState.InQueue: {
+                    this.tankerCount++;
+                    helpers.logFireEvent(`Tanker #${tanker.id} entered queue at ${helpers.convertSecondsToHours(args.time)} h.`);
+
+                    lifecycle.enteredSystemAt = args.time;
+
+                    break;
+                }
+                case QueueEventState.ProcessedByTow: {
+                    helpers.logFireEvent(`Tanker #${tanker.id} left queue at ${helpers.convertSecondsToHours(args.time)} h.`);
+
+                    lifecycle.processedByTowAt = args.time;
+                    lifecycle.timeInQueue += lifecycle.processedByTowAt - lifecycle.enteredSystemAt;
+
+                    break;
+                }
+                case QueueEventState.ProcessedByLine: {
+                    helpers.logFireEvent(`Tanker #${tanker.id} entered processing line at ${helpers.convertSecondsToHours(args.time)} h.`);
+
+                    lifecycle.processedByLineAt = args.time;
+                    lifecycle.towProcessTime += lifecycle.processedByLineAt - lifecycle.processedByTowAt;
+
+                    break;
+                }
+                case QueueEventState.DispatchedByTow: {
+                    helpers.logFireEvent(`Tanker #${tanker.id} has been dispatched at ${helpers.convertSecondsToHours(args.time)} h.`);
+
+                    lifecycle.dispatchedByTowAt = args.time;
+                    lifecycle.timeOnProcessLine += lifecycle.dispatchedByTowAt - lifecycle.processedByLineAt;
+
+                    break;
+                }
+            }
         } else if (args.entity instanceof Tow) {
             const towStats = this.getOrCreateTowStatistics(args.entity.id);
             const previousState = _(towStats.states).last();
@@ -25,6 +73,12 @@ export class StatisticsManager {
             }
 
             towStats.states.push(new State(args.state.toString(), globalTimeProvider.globalTime));
+
+            if (args.state == QueueEventState.Idle) {
+                helpers.logFireEvent(`Tow #${args.entity.id} got free at ${helpers.convertSecondsToHours(args.time)} h.`);
+            } else {
+                helpers.logFireEvent(`Tow #${args.entity.id} went to work at ${helpers.convertSecondsToHours(args.time)} h.`);
+            }
         } else if (args.entity instanceof ProcessingLine) {
             const processingLineStats = this.getOrCreateProcessingLineStatistics(args.entity.id);
             const previousState = _(processingLineStats.states).last();
@@ -68,6 +122,9 @@ export class StatisticsManager {
                 .map(s => s.duration)
                 .sum();
         });
+
+        this.unprocessedTankerCount = this.tankerCount - this.processedTankerCount;
+        _(this.tankerStatistics).each(statistics => {});
     }
 
     private getOrCreateTowStatistics(towId: number): TowStatistics {
@@ -79,9 +136,7 @@ export class StatisticsManager {
     }
 
     private getOrCreateEntityStatistics(entityId: number, source: ServingEntityStatistics[]): ServingEntityStatistics {
-        let entity = _(source)
-            .filter(s => s.id == entityId)
-            .value()[0];
+        let entity = source.filter(s => s.id == entityId)[0];
 
         if (entity != null) {
             return entity;
@@ -91,6 +146,19 @@ export class StatisticsManager {
         source.push(entity);
 
         return entity;
+    }
+
+    private getOrCreateTankerLifecycle(tankerId: number, source: TankerLifecycle[]): TankerLifecycle {
+        let lifecycle = source.filter(s => s.tankerId == tankerId)[0];
+
+        if (lifecycle != null) {
+            return lifecycle;
+        }
+
+        lifecycle = new TankerLifecycle(tankerId);
+        source.push(lifecycle);
+
+        return lifecycle;
     }
 }
 
@@ -135,4 +203,20 @@ export class State {
         this.name = name;
         this.time = time;
     }
+}
+
+export class TankerLifecycle {
+    public enteredSystemAt: number;
+    public processedByTowAt: number;
+    public processedByLineAt: number;
+    public dispatchedByTowAt: number;
+    public leftSystemAt: number;
+    public timeInQueue: number = 0;
+    public towProcessTime: number = 0;
+    public timeOnProcessLine: number = 0;
+    public get tankerId(): number {
+        return this._tankerId;
+    }
+
+    constructor(private _tankerId: number) {}
 }

@@ -1,4 +1,4 @@
-import { ServingEntityStatistics, TankerStatistics } from "./statisticsManager";
+import { ServingEntityStatistics, TankerStatistics, StatisticsManager } from "./statisticsManager";
 import { globalTimeProvider } from "./gloabalTime";
 import * as $ from "jquery";
 
@@ -17,6 +17,16 @@ export function renderTextForEntityStats(stats: ServingEntityStatistics, entityN
     $(`#${entityAlias}${stats.id}Stats`).text(text);
 }
 
+export function renderTextForTotalTankerStats(statisticsManager: StatisticsManager) {
+    const totalTankerCountComponent = $(`<p>Количество прибывших танкеров: ${statisticsManager.tankerCount} шт</p>`);
+    const processedTankerCountComponent = $(`<p>Количество обслуженных танкеров: ${statisticsManager.processedTankerCount} шт</p>`);
+    const unprocessedTankerCountComponent = $(`<p>Количество необслуженных танкеров: ${statisticsManager.unprocessedTankerCount} шт</p>`);
+
+    $("#tankerStats").append(totalTankerCountComponent);
+    $("#tankerStats").append(processedTankerCountComponent);
+    $("#tankerStats").append(unprocessedTankerCountComponent);
+}
+
 export function renderTextForTankerStats(stats: TankerStatistics) {
     const text = `Танкер #${stats.id}. Время в очереди: ${
         stats.idleTime != undefined ? convertSecondsToHours(stats.idleTime) + " ч" : "не был обслужен"
@@ -33,4 +43,12 @@ export function convertSecondsToHours(seconds: number): string {
 
 export function convertToPercent(part: number, total: number): string {
     return ((part / total) * 100).toFixed(2);
+}
+
+export function logScheduleEvent(message: string): void {
+    console.log(`%c ${message}`, "background: blue; color: white");
+}
+
+export function logFireEvent(message: string): void {
+    console.log(`%c ${message}`, "background: red; color: white");
 }

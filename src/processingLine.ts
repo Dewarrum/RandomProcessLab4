@@ -40,8 +40,8 @@ export class ProcessingLineEventService extends EventService {
     constructor() {
         super(() => this.rng.next(this.rngArgs));
 
-        const start = 60 * 60 * 15;
-        const end = 60 * 60 * 25;
+        const start = 60 * 60 * 3;
+        const end = 60 * 60 * 3;
 
         this.rngArgs = new EvenRandomValueGeneratorArgs(start, end);
         this.rng = new EvenRandomValueGenerator();

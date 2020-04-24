@@ -1,17 +1,18 @@
 import { globalTimeProvider } from "./gloabalTime";
 import { EntityGenerator } from "./entityGenerator";
-import { Tanker, TankerEvent, TankerEventQueue, TankerEventService, TankerQueue, EventType } from "./tanker";
+import { Tanker, TankerEvent, TankerEventQueue, TankerEventService, TankerQueue, EventType, TankerEventArgs } from "./tanker";
 import { ProcessingLine, ProcessingLineEvent, ProcessingLineEventQueue, ProcessingLineEventService, ProcessingLineQueue } from "./processingLine";
-import { Tow, TowEvent, TowEventQueue, TowEventService, TowQueue } from "./tow";
+import { Tow, TowEvent, TowEventQueue, TowEventService, TowQueue, TowGenerator } from "./tow";
 import { PortEvent } from "./portEvent";
 import { Event } from "./event";
 import { EventArgs } from "./queue";
 import { Entity } from "./entity";
+import { convertSecondsToHours, logScheduleEvent } from "./helpers";
 
 export class Mediator {
     public processingLineCount: number = 3;
     public towCount: number = 1;
-    public simulationTime: number = 60 * 60 * 24 * 7; // In seconds
+    public simulationTime: number = 60 * 60 * 24 * 1; // In seconds
 
     public onEntityQueueEvent: Event<{ (args: EventArgs<Entity>): void }, EventArgs<Entity>> = new Event<
         { (args: EventArgs<Entity>): void },
@@ -54,23 +55,39 @@ export class Mediator {
             this.checkIfAnyEventIsOutdated(events);
 
             globalTimeProvider.globalTime = this.getClosestEvent(events).estimatedTime;
+            console.log(`%c Current time: ${convertSecondsToHours(globalTimeProvider.globalTime)} h.`, "background: green; color: white");
 
             const triggeredEvents = this.getEventsWithEstimatedTime(globalTimeProvider.globalTime);
             triggeredEvents.forEach(e => {
                 if (e instanceof TankerEvent) {
-                    const tanker = this.tankerGenerator.newInstance();
-                    this._tankerQueue.push(tanker);
+                    if (e.type == EventType.ArrivedNew) {
+                        this._tankerQueue.enqueue(e.tanker);
 
-                    if (this._processingLineQueue.any() && this._towQueue.any()) {
-                        const processingLine = this._processingLineQueue.pop();
-                        const tow = this._towQueue.pop();
-                        this._tankerQueue.pop();
+                        if (this._processingLineQueue.any() && this._towQueue.any()) {
+                            const processingLine = this._processingLineQueue.pop();
+                            const tow = this._towQueue.pop();
 
-                        this.handleTankerRefill(tow, processingLine);
+                            this._tankerQueue.processByTow(e.tanker.id);
+                            this.handleTankerRefill(tow, e.tanker, processingLine);
+                        }
+
+                        const estimatedNewTankerEventTime = this._tankerEventService.calculateNextEventTime();
+                        this.scheduleNewTankerEvent(estimatedNewTankerEventTime);
+                    } else if (e.type == EventType.HasBeenProcessed) {
+                        // this.scheduleTankerStartedProcessByLineEvent(globalTimeProvider.globalTime, e.tanker, e.processingLine);
+                    } else if (e.type == EventType.StartedRefill) {
+                        const processingEstimatedTime = this._processingLineEventService.calculateNextEventTime();
+                        this.scheduleTankerFinishedProcessByLineEvent(processingEstimatedTime, e.tanker, e.processingLine);
+                        this._tankerQueue.processByLine(e.tanker.id);
+                    } else if (e.type == EventType.FinishedRefill) {
+                        if (this._towQueue.any()) {
+                            const tow = this._towQueue.pop();
+                            this._tankerQueue.dispatchByTow(e.tanker.id);
+                            this.handleTankerRefillFinished(tow, e.tanker, e.processingLine);
+                        }
+                    } else if (e.type == EventType.LeftSystem) {
+                        this._tankerQueue.removeFromSystem(e.tanker.id);
                     }
-
-                    const estimatedNewTankerEventTime = this._tankerEventService.calculateNextEventTime();
-                    this.scheduleNewTankerEvent(estimatedNewTankerEventTime);
                 } else if (e instanceof TowEvent) {
                     let tow = e.tow;
                     this._towQueue.push(tow);
@@ -78,9 +95,9 @@ export class Mediator {
                     if (this._tankerQueue.any() && this._processingLineQueue.any()) {
                         const processingLine = this._processingLineQueue.pop();
                         tow = this._towQueue.pop();
-                        this._tankerQueue.pop();
+                        const tanker = this._tankerQueue.first();
 
-                        this.handleTankerRefill(tow, processingLine);
+                        this.handleTankerRefill(tow, tanker, processingLine);
                     }
                 } else if (e instanceof ProcessingLineEvent) {
                     let processingLine = e.processingLine;
@@ -89,9 +106,10 @@ export class Mediator {
                     if (this._tankerQueue.any() && this._processingLineQueue.any()) {
                         processingLine = this._processingLineQueue.pop();
                         const tow = this._towQueue.pop();
-                        this._tankerQueue.pop();
+                        const tanker = this._tankerQueue.pop();
+                        this._tankerQueue.processByLine(tanker.id);
 
-                        this.handleTankerRefill(tow, processingLine);
+                        this.handleTankerRefill(tow, tanker, processingLine);
                     }
                 }
             });
@@ -109,7 +127,7 @@ export class Mediator {
             this._processingLineQueue.push(processingLine);
         }
 
-        const towGenerator = new EntityGenerator<Tow>(Tow);
+        const towGenerator = new TowGenerator();
         for (let i = 0; i < this.towCount; i++) {
             const tow = towGenerator.newInstance();
             this._towQueue.push(tow);
@@ -119,27 +137,71 @@ export class Mediator {
     private scheduleTowFreeEvent(estimatedTime: number, tow: Tow): void {
         const event = new TowEvent(estimatedTime, tow);
         this._towEventQueue.push(event);
+
+        logScheduleEvent(`Tow #${tow.id} free event scheduled at ${convertSecondsToHours(estimatedTime)} h.`);
     }
 
     private scheduleProcessingLineFreeEvent(estimatedTime: number, processingLine: ProcessingLine): void {
         const event = new ProcessingLineEvent(estimatedTime, processingLine);
+        logScheduleEvent(`Processing line #${processingLine.id} free event scheduled at ${convertSecondsToHours(estimatedTime)} h.`);
 
         this._processingLineEventQueue.push(event);
     }
 
-    private handleTankerRefill(tow: Tow, processingLine: ProcessingLine) {
+    private scheduleTankerFreeEvent(estimatedTime: number, tanker: Tanker, processingLine: ProcessingLine): void {
+        const event = new TankerEvent(estimatedTime, EventType.LeftSystem, tanker);
+        event.processingLine = processingLine;
+        logScheduleEvent(`Tanker #${tanker.id} free event scheduled at ${convertSecondsToHours(estimatedTime)} h.`);
+
+        this._tankerEventQueue.push(event);
+    }
+
+    private scheduleTankerStartedProcessByLineEvent(estimatedTime: number, tanker: Tanker, processingLine: ProcessingLine): void {
+        const event = new TankerEvent(estimatedTime, EventType.StartedRefill, tanker);
+        event.processingLine = processingLine;
+        logScheduleEvent(
+            `Tanker #${tanker.id} start process by line #${processingLine.id} event scheduled at ${convertSecondsToHours(estimatedTime)} h.`
+        );
+
+        this._tankerEventQueue.push(event);
+    }
+
+    private scheduleTankerFinishedProcessByLineEvent(estimatedTime: number, tanker: Tanker, processingLine: ProcessingLine): void {
+        const event = new TankerEvent(estimatedTime, EventType.FinishedRefill, tanker);
+        event.processingLine = processingLine;
+        logScheduleEvent(
+            `Tanker #${tanker.id} finished process by line #${processingLine.id} event scheduled at ${convertSecondsToHours(estimatedTime)} h.`
+        );
+
+        this._tankerEventQueue.push(event);
+    }
+
+    private scheduleTankerStartedProcessByTowEvent(estimatedTime: number, tanker: Tanker, processingLine: ProcessingLine): void {
+        const event = new TankerEvent(estimatedTime, EventType.HasBeenProcessed, tanker);
+        event.processingLine = processingLine;
+        logScheduleEvent(`Tanker #${tanker.id} start process by tow event scheduled at ${convertSecondsToHours(estimatedTime)} h.`);
+
+        this._tankerEventQueue.push(event);
+    }
+
+    private handleTankerRefill(tow: Tow, tanker: Tanker, processingLine: ProcessingLine) {
         const estimatedTowFreeTime = this._towEventService.calculateNextEventTime();
 
-        // Tow work time + Processing Line work time + Tow work time
-        const estimatedProcessingLineFreeTime =
-            this._processingLineEventService.calculateNextEventTime() + 2 * (estimatedTowFreeTime - globalTimeProvider.globalTime);
-
-        this.scheduleProcessingLineFreeEvent(estimatedProcessingLineFreeTime, processingLine);
         this.scheduleTowFreeEvent(estimatedTowFreeTime, tow);
+        // this.scheduleProcessingLineStartedProcess(estimatedTowFreeTime, tanker, processingLine);
+        this.scheduleTankerStartedProcessByLineEvent(globalTimeProvider.globalTime, tanker, processingLine);
+    }
+
+    private handleTankerRefillFinished(tow: Tow, tanker: Tanker, processingLine: ProcessingLine) {
+        const estimatedTowFreeTime = this._towEventService.calculateNextEventTime();
+
+        this.scheduleTankerFreeEvent(estimatedTowFreeTime, tanker, processingLine);
+        this.scheduleTowFreeEvent(estimatedTowFreeTime, tow);
+        this.scheduleProcessingLineFreeEvent(estimatedTowFreeTime, processingLine);
     }
 
     private scheduleNewTankerEvent(estimatedTime: number): void {
-        const event = new TankerEvent(estimatedTime, EventType.Add, this.tankerGenerator.newInstance());
+        const event = new TankerEvent(estimatedTime, EventType.ArrivedNew, this.tankerGenerator.newInstance());
         this._tankerEventQueue.push(event);
     }
 

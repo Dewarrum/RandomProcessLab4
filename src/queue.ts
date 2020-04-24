@@ -2,6 +2,7 @@ import { globalTimeProvider } from "./gloabalTime";
 import { PortEvent } from "./portEvent";
 import { Entity } from "./entity";
 import { Event } from "./event";
+import * as _ from "lodash";
 
 export class EventArgs<T> {
     public get entity(): T {
@@ -19,11 +20,16 @@ export class EventArgs<T> {
 
 export enum QueueEventState {
     Idle = "Idle",
-    Working = "Working"
+    Working = "Working",
+    InQueue = "In Queue",
+    ProcessedByTow = "Processed by Tow",
+    ProcessedByLine = "Processed by Line",
+    DispatchedByTow = "Dispatched by Tow",
+    LeftSystem = "Left System"
 }
 
 export class Queue<T> {
-    private _elements: T[] = [];
+    protected _elements: T[] = [];
 
     public onPopEvent: Event<{ (args: EventArgs<T>): void }, EventArgs<T>> = new Event<{ (args: EventArgs<T>): void }, EventArgs<T>>();
     public onPushEvent: Event<{ (args: EventArgs<T>): void }, EventArgs<T>> = new Event<{ (args: EventArgs<T>): void }, EventArgs<T>>();
@@ -40,12 +46,20 @@ export class Queue<T> {
     }
 
     public push(element: T): void {
+        if (element instanceof Entity && this._elements.filter(e => ((e as unknown) as Entity).id == element.id).length > 0) {
+            throw new Error(`Entity with ${element.id} is already present in queue, cannot have same entity twice or more times at the same moment`);
+        }
+
         this.onPushEvent.invoke(new EventArgs(element, globalTimeProvider.globalTime, QueueEventState.Idle));
         this._elements.push(element);
     }
 
     public any(): boolean {
         return this._elements.length != 0;
+    }
+
+    public count(): number {
+        return this._elements.length;
     }
 }
 
