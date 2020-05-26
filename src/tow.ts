@@ -3,6 +3,7 @@ import { EntityGenerator } from "./entityGenerator";
 import { PortEvent } from "./portEvent";
 import { EventQueue, EventService, Queue } from "./queue";
 import { EvenRandomValueGenerator, EvenRandomValueGeneratorArgs } from "./randomValueGenerator";
+import { Intensity } from "./appConfig";
 
 export class Tow extends Entity {}
 
@@ -37,12 +38,19 @@ export class TowEventService extends EventService {
     private rngArgs: EvenRandomValueGeneratorArgs;
     private rng: EvenRandomValueGenerator;
 
+    public intensity: Intensity;
+
     constructor() {
         super(() => this.rng.next(this.rngArgs));
+    }
 
-        const start = 60 * 60 * 1; // In seconds
+    public setSettings(intensity: Intensity): void {
+        this.intensity = intensity;
 
-        this.rngArgs = new EvenRandomValueGeneratorArgs(start, start);
+        const start = this.intensity.start; // In seconds
+        const end = this.intensity.end;
+
+        this.rngArgs = new EvenRandomValueGeneratorArgs(start, end);
         this.rng = new EvenRandomValueGenerator();
     }
 }

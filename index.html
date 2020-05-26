@@ -4,25 +4,196 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Document</title>
+        <link rel="stylesheet" href="./lib/bootstrap.min.css" />
     </head>
     <body>
         <style>
-            div.container {
+            div.statsContainer,
+            #tankerLifecycles div {
                 border: 1px solid black;
                 border-radius: 4px;
                 margin: 8px;
                 padding: 8px;
             }
+
+            button {
+                margin: 8px;
+            }
+
+            #settings div.settingsGroup {
+                margin: 8px;
+                padding: 4px;
+            }
+
+            div.template {
+                display: none;
+            }
         </style>
+        <script src="./lib/jquery-3.3.1.slim.min.js"></script>
+        <script src="./lib/popper.min.js"></script>
+        <script src="./lib//bootstrap.min.js"></script>
         <script src="app.js" type="text/javascript"></script>
-        <div id="processingLineStats" class="container">
-            <label>Линии производства</label>
+        <ul class="nav nav-tabs" role="tablist">
+            <li class="nav-item">
+                <a
+                    class="nav-link active"
+                    id="singleRunTab-tab"
+                    data-toggle="tab"
+                    href="#singleRunTab"
+                    role="tab"
+                    aria-controls="singleRunTab"
+                    aria-selected="true"
+                    >Одиночный прогон</a
+                >
+            </li>
+            <li class="nav-item">
+                <a
+                    class="nav-link"
+                    id="multipleRunTab-tab"
+                    data-toggle="tab"
+                    href="#multipleRunTab"
+                    role="tab"
+                    aria-controls="multipleRunTab"
+                    aria-selected="false"
+                    >Многократный прогон</a
+                >
+            </li>
+            <li class="nav-item">
+                <a
+                    class="nav-link"
+                    id="settingsTab-tab"
+                    data-toggle="tab"
+                    href="#settingsTab"
+                    role="tab"
+                    aria-controls="contact"
+                    aria-selected="false"
+                    >Настройки</a
+                >
+            </li>
+        </ul>
+        <div class="tab-content container">
+            <div id="singleRunTab" class="tab-pane fade show active" role="tabpanel" aria-labelledby="singleRunTab-tab">
+                <h1>Одиночный прогон</h1>
+                <button id="singleRun" class="btn btn-primary">Запустить</button>
+                <div id="processingLineStats" class="statsContainer">
+                    <label>Линии производства</label>
+                </div>
+                <div id="towStats" class="statsContainer">
+                    <label>Буксиры</label>
+                </div>
+                <button
+                    class="btn btn-primary"
+                    type="button"
+                    data-toggle="collapse"
+                    data-target="#tankerStats"
+                    aria-expanded="false"
+                    aria-controls="tankerStats"
+                >
+                    Посмотреть статистику по танкерам
+                </button>
+                <div id="tankerStats" class="statsContainer collapse">
+                    <label>Танкеры</label>
+                    <div id="totalTankerStats"></div>
+                    <div id="tankerLifecycles"></div>
+                    <button
+                        class="btn btn-primary"
+                        type="button"
+                        data-toggle="collapse"
+                        data-target="#tankerStats"
+                        aria-expanded="false"
+                        aria-controls="tankerStats"
+                    >
+                        Скрыть статистику
+                    </button>
+                </div>
+                <div id="timeInQueueHistogram"></div>
+                <div id="processingTimeHistogram"></div>
+                <div id="timeWhileStuckInLineHistogram"></div>
+                <div id="processingLineLoadTimeChart"></div>
+                <div id="towLoadTimeChart"></div>
+                <div id="queueLengthChart"></div>
+            </div>
+            <div id="multipleRunTab" class="tab-pane fade" role="tabpanel" aria-labelledby="multipleRunTab-tab">
+                <h1>Среднее за несколько (1000) прогонов</h1>
+                <button id="multipleRun" class="btn btn-primary">Запустить</button>
+                <div class="result"></div>
+            </div>
+            <div id="settingsTab" class="tab-pane fade" role="tabpanel" aria-labelledby="settingsTab-tab">
+                <h1>Настройки</h1>
+                <div id="settings">
+                    <div class="settingsGroup">
+                        <h5>Время симуляции в часах</h5>
+                        <input type="text" class="form-control simulationTime" value="168" />
+                    </div>
+
+                    <div class="settingsGroup">
+                        <h5>Количество одновременно обслуживаемых танкеров (целое число)</h5>
+                        <input type="text" class="form-control processingLineCount" value="3" />
+                    </div>
+
+                    <div class="settingsGroup">
+                        <h5>Количество буксиров (целое число)</h5>
+                        <input type="text" class="form-control towCount" value="1" />
+                    </div>
+
+                    <div class="settingsGroup">
+                        <h5>Время прибытия танкеров в часах</h5>
+                        <div class="form-row tankerSettings">
+                            <div class="col">
+                                <label>От</label>
+                                <input type="text" class="form-control from" value="4" />
+                            </div>
+                            <div class="col">
+                                <label>До</label>
+                                <input type="text" class="form-control to" value="6" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settingsGroup">
+                        <h5>Время обслуживания танкеров в часах</h5>
+                        <div class="form-row processingLineSettings">
+                            <div class="col">
+                                <label>От</label>
+                                <input type="text" class="form-control from" value="15" />
+                            </div>
+                            <div class="col">
+                                <label>До</label>
+                                <input type="text" class="form-control to" value="25" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settingsGroup">
+                        <h5>Время работы буксира в часах</h5>
+                        <div class="form-row towSettings">
+                            <div class="col">
+                                <label>От</label>
+                                <input type="text" class="form-control from" value="1" />
+                            </div>
+                            <div class="col">
+                                <label>До</label>
+                                <input type="text" class="form-control to" value="1" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
-        <div id="towStats" class="container">
-            <label>Буксиры</label>
-        </div>
-        <div id="tankerStats" class="container">
-            <label>Танкеры</label>
+
+        <div id="multipleRunResultTmpl" class="template">
+            {{#loading}}
+            <div class="spinner-border" role="status">
+                <span class="sr-only">Loading...</span>
+            </div>
+            {{/loading}}
+            {{^loading}}
+            <p><b>Среднее количество танкеров</b>: {{averageNumberOfTankers}}</p>
+            <p><b>Средняя время в очереди</b>: {{averageTimeInQueue}}</p>
+            <p><b>Среднее время обслуживания</b>: {{averageProcessingTime}}</p>
+            <p><b>Среднее количество необслуженных танкеров</b>: {{averageUnprocessedTankerCount}}</p>
+            <p><b>% обслуженных танкеров</b>: {{processedTankerPercent}}</p>
+            {{/loading}}
         </div>
     </body>
 </html>

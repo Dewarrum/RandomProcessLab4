@@ -24,6 +24,7 @@ export enum QueueEventState {
     InQueue = "In Queue",
     ProcessedByTow = "Processed by Tow",
     ProcessedByLine = "Processed by Line",
+    StuckInProcessingLine = "Stuck in Processing Line",
     DispatchedByTow = "Dispatched by Tow",
     LeftSystem = "Left System"
 }
@@ -42,7 +43,7 @@ export class Queue<T> {
     }
 
     public first(): T {
-        return this._elements[this._elements.length - 1];
+        return this._elements[0];
     }
 
     public push(element: T): void {
@@ -77,6 +78,10 @@ export class EventQueue<T extends PortEvent> extends Queue<T> {
         const eventEmitsAt = globalTimeProvider.globalTime + eventEmitsIn;
 
         return eventEmitsAt;
+    }
+
+    public first(): T {
+        return this._elements.sort((a, b) => a.estimatedTime - b.estimatedTime)[0];
     }
 }
 

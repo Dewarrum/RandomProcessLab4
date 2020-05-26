@@ -5,14 +5,19 @@
     "main": "scripts.js",
     "dependencies": {
         "@types/jquery": "^3.3.35",
+        "@types/mustache": "^4.0.1",
+        "@types/plotly.js": "^1.50.8",
         "jquery": "^3.5.0",
         "lodash": "^4.17.15",
+        "mustache": "^4.0.1",
+        "plotly.js": "^1.54.1",
+        "plotly.js-dist": "^1.53.0",
         "prettier": "^2.0.4",
         "ts-loader": "^7.0.1",
         "typescript": "^3.8.3",
         "webpack": "^4.42.1",
         "webpack-cli": "^3.3.11",
-        "webpack-dev-server": "^3.10.3"
+        "webpack-dev-server": "^3.11.0"
     },
     "devDependencies": {
         "@types/lodash": "^4.14.150"

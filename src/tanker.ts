@@ -6,8 +6,13 @@ import { EvenRandomValueGenerator, EvenRandomValueGeneratorArgs } from "./random
 import { globalTimeProvider } from "./gloabalTime";
 import * as _ from "lodash";
 import { ProcessingLine } from "./processingLine";
+import { Tow } from "./tow";
+import { Intensity } from "./appConfig";
 
-export class Tanker extends Entity {}
+export class Tanker extends Entity {
+    public processingLine: ProcessingLine;
+    public tow: Tow;
+}
 
 export class TankerEvent extends PortEvent {
     public processingLine: ProcessingLine;
@@ -53,6 +58,7 @@ export class TankerQueue extends Queue<Tanker> {
     private _queuedTankers: Tanker[] = [];
     private _processedByTowTankers: Tanker[] = [];
     private _processedByLineTankers: Tanker[] = [];
+    private _stuckInProcessingLineTankers: Tanker[] = [];
     private _dispatchedByTowTankers: Tanker[] = [];
 
     public push(tanker: Tanker): void {
@@ -67,8 +73,16 @@ export class TankerQueue extends Queue<Tanker> {
         return this._queuedTankers.length > 0;
     }
 
+    public anyStuckInProcessingLine(): boolean {
+        return this._stuckInProcessingLineTankers.length > 0;
+    }
+
     public first(): Tanker {
-        return _(this._queuedTankers).first();
+        return this._queuedTankers[0];
+    }
+
+    public firstStuckInProcessingLine(): Tanker {
+        return this._stuckInProcessingLineTankers[0];
     }
 
     public enqueue(tanker: Tanker): void {
@@ -91,8 +105,22 @@ export class TankerQueue extends Queue<Tanker> {
         this.onPushEvent.invoke(new TankerEventArgs(tanker, globalTimeProvider.globalTime, QueueEventState.ProcessedByLine));
     }
 
+    public stuckInProcessingLine(tankerId: number): void {
+        const tanker = this.getTankerFrom(tankerId, this._processedByLineTankers);
+        this._stuckInProcessingLineTankers.push(tanker);
+
+        this.onPushEvent.invoke(new TankerEventArgs(tanker, globalTimeProvider.globalTime, QueueEventState.StuckInProcessingLine));
+    }
+
     public dispatchByTow(tankerId: number): void {
         const tanker = this.getTankerFrom(tankerId, this._processedByLineTankers);
+        this._dispatchedByTowTankers.push(tanker);
+
+        this.onPushEvent.invoke(new TankerEventArgs(tanker, globalTimeProvider.globalTime, QueueEventState.DispatchedByTow));
+    }
+
+    public dispatchStuckInLineByTow(tankerId: number): void {
+        const tanker = this.getTankerFrom(tankerId, this._stuckInProcessingLineTankers);
         this._dispatchedByTowTankers.push(tanker);
 
         this.onPushEvent.invoke(new TankerEventArgs(tanker, globalTimeProvider.globalTime, QueueEventState.DispatchedByTow));
@@ -120,11 +148,17 @@ export class TankerEventService extends EventService {
     private rngArgs: EvenRandomValueGeneratorArgs;
     private rng: EvenRandomValueGenerator;
 
+    public intensity: Intensity;
+
     constructor() {
         super(() => this.rng.next(this.rngArgs));
+    }
 
-        const start = 60 * 60 * 2; // In seconds
-        const end = 60 * 60 * 2;
+    public setSettings(intensity: Intensity): void {
+        this.intensity = intensity;
+
+        const start = this.intensity.start; // In seconds
+        const end = this.intensity.end;
 
         this.rngArgs = new EvenRandomValueGeneratorArgs(start, end);
         this.rng = new EvenRandomValueGenerator();

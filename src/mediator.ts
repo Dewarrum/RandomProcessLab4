@@ -8,11 +8,13 @@ import { Event } from "./event";
 import { EventArgs } from "./queue";
 import { Entity } from "./entity";
 import { convertSecondsToHours, logScheduleEvent } from "./helpers";
+import * as _ from "lodash";
+import { getConfig } from "./appConfig";
 
 export class Mediator {
     public processingLineCount: number = 3;
     public towCount: number = 1;
-    public simulationTime: number = 60 * 60 * 24 * 1; // In seconds
+    public simulationTime: number = 60 * 60 * 24 * 7; // In seconds
 
     public onEntityQueueEvent: Event<{ (args: EventArgs<Entity>): void }, EventArgs<Entity>> = new Event<
         { (args: EventArgs<Entity>): void },
@@ -47,21 +49,41 @@ export class Mediator {
     }
 
     public startSimulation() {
+        this.populateSettings();
         this.setupInitialState();
 
         while (globalTimeProvider.globalTime < this.simulationTime) {
             const events = [this._tankerEventQueue.first(), this._towEventQueue.first(), this._processingLineEventQueue.first()];
 
-            this.checkIfAnyEventIsOutdated(events);
+            this.checkIfNextEventTimeIsInThePast(this.getClosestEvent(events).estimatedTime);
 
             globalTimeProvider.globalTime = this.getClosestEvent(events).estimatedTime;
-            console.log(`%c Current time: ${convertSecondsToHours(globalTimeProvider.globalTime)} h.`, "background: green; color: white");
+            // console.log(`%c Current time: ${convertSecondsToHours(globalTimeProvider.globalTime)} h.`, "background: green; color: white");
+            this.checkIfAnyEventIsOutdated(events);
 
             const triggeredEvents = this.getEventsWithEstimatedTime(globalTimeProvider.globalTime);
+
             triggeredEvents.forEach(e => {
+                if (this._tankerQueue.any() && this._towQueue.any() && this._processingLineQueue.any()) {
+                    const anyTanker = this._tankerQueue.any();
+                    const anyTow = this._towQueue.any();
+                    const anyProcessingLine = this._processingLineQueue.any();
+
+                    const text = [anyTanker ? "tanker" : "", anyTow ? "tow" : "", anyProcessingLine ? "processing line" : ""];
+
+                    throw new Error(`Error: ${text.join(",")}  are not working when they can.`);
+                }
                 if (e instanceof TankerEvent) {
                     if (e.type == EventType.ArrivedNew) {
                         this._tankerQueue.enqueue(e.tanker);
+
+                        if (this._tankerQueue.anyStuckInProcessingLine() && this._towQueue.any()) {
+                            const tanker = this._tankerQueue.firstStuckInProcessingLine();
+                            const tow = this._towQueue.pop();
+                            this._tankerQueue.dispatchStuckInLineByTow(tanker.id);
+
+                            this.handleTankerRefillFinished(tow, tanker, tanker.processingLine);
+                        }
 
                         if (this._processingLineQueue.any() && this._towQueue.any()) {
                             const processingLine = this._processingLineQueue.pop();
@@ -73,8 +95,6 @@ export class Mediator {
 
                         const estimatedNewTankerEventTime = this._tankerEventService.calculateNextEventTime();
                         this.scheduleNewTankerEvent(estimatedNewTankerEventTime);
-                    } else if (e.type == EventType.HasBeenProcessed) {
-                        // this.scheduleTankerStartedProcessByLineEvent(globalTimeProvider.globalTime, e.tanker, e.processingLine);
                     } else if (e.type == EventType.StartedRefill) {
                         const processingEstimatedTime = this._processingLineEventService.calculateNextEventTime();
                         this.scheduleTankerFinishedProcessByLineEvent(processingEstimatedTime, e.tanker, e.processingLine);
@@ -84,6 +104,8 @@ export class Mediator {
                             const tow = this._towQueue.pop();
                             this._tankerQueue.dispatchByTow(e.tanker.id);
                             this.handleTankerRefillFinished(tow, e.tanker, e.processingLine);
+                        } else {
+                            this._tankerQueue.stuckInProcessingLine(e.tanker.id);
                         }
                     } else if (e.type == EventType.LeftSystem) {
                         this._tankerQueue.removeFromSystem(e.tanker.id);
@@ -92,10 +114,19 @@ export class Mediator {
                     let tow = e.tow;
                     this._towQueue.push(tow);
 
-                    if (this._tankerQueue.any() && this._processingLineQueue.any()) {
+                    if (this._tankerQueue.anyStuckInProcessingLine() && this._towQueue.any()) {
+                        const tanker = this._tankerQueue.firstStuckInProcessingLine();
+                        const tow = this._towQueue.pop();
+                        this._tankerQueue.dispatchStuckInLineByTow(tanker.id);
+
+                        this.handleTankerRefillFinished(tow, tanker, tanker.processingLine);
+                    }
+
+                    if (this._tankerQueue.any() && this._processingLineQueue.any() && this._towQueue.any()) {
                         const processingLine = this._processingLineQueue.pop();
                         tow = this._towQueue.pop();
                         const tanker = this._tankerQueue.first();
+                        this._tankerQueue.processByTow(tanker.id);
 
                         this.handleTankerRefill(tow, tanker, processingLine);
                     }
@@ -103,17 +134,36 @@ export class Mediator {
                     let processingLine = e.processingLine;
                     this._processingLineQueue.push(processingLine);
 
-                    if (this._tankerQueue.any() && this._processingLineQueue.any()) {
-                        processingLine = this._processingLineQueue.pop();
+                    if (this._tankerQueue.anyStuckInProcessingLine() && this._towQueue.any()) {
+                        const tanker = this._tankerQueue.firstStuckInProcessingLine();
                         const tow = this._towQueue.pop();
-                        const tanker = this._tankerQueue.pop();
-                        this._tankerQueue.processByLine(tanker.id);
+                        this._tankerQueue.dispatchStuckInLineByTow(tanker.id);
+
+                        this.handleTankerRefillFinished(tow, tanker, tanker.processingLine);
+                    } else if (this._tankerQueue.any() && this._towQueue.any()) {
+                        const processingLine = this._processingLineQueue.pop();
+                        const tow = this._towQueue.pop();
+                        const tanker = this._tankerQueue.first();
+                        this._tankerQueue.processByTow(tanker.id);
 
                         this.handleTankerRefill(tow, tanker, processingLine);
                     }
                 }
             });
         }
+    }
+
+    private populateSettings(): void {
+        const appConfig = getConfig();
+
+        this.simulationTime = appConfig.simulationTime;
+
+        this.processingLineCount = appConfig.processingLineCount;
+        this.towCount = appConfig.towCount;
+
+        this._tankerEventService.setSettings(appConfig.tankerIntensity);
+        this._processingLineEventService.setSettings(appConfig.processingLineIntensity);
+        this._towEventService.setSettings(appConfig.towIntensity);
     }
 
     private setupInitialState(): void {
@@ -135,6 +185,7 @@ export class Mediator {
     }
 
     private scheduleTowFreeEvent(estimatedTime: number, tow: Tow): void {
+        this.checkIfEventIsScheduledForPast(estimatedTime);
         const event = new TowEvent(estimatedTime, tow);
         this._towEventQueue.push(event);
 
@@ -142,6 +193,7 @@ export class Mediator {
     }
 
     private scheduleProcessingLineFreeEvent(estimatedTime: number, processingLine: ProcessingLine): void {
+        this.checkIfEventIsScheduledForPast(estimatedTime);
         const event = new ProcessingLineEvent(estimatedTime, processingLine);
         logScheduleEvent(`Processing line #${processingLine.id} free event scheduled at ${convertSecondsToHours(estimatedTime)} h.`);
 
@@ -149,6 +201,7 @@ export class Mediator {
     }
 
     private scheduleTankerFreeEvent(estimatedTime: number, tanker: Tanker, processingLine: ProcessingLine): void {
+        this.checkIfEventIsScheduledForPast(estimatedTime);
         const event = new TankerEvent(estimatedTime, EventType.LeftSystem, tanker);
         event.processingLine = processingLine;
         logScheduleEvent(`Tanker #${tanker.id} free event scheduled at ${convertSecondsToHours(estimatedTime)} h.`);
@@ -157,6 +210,8 @@ export class Mediator {
     }
 
     private scheduleTankerStartedProcessByLineEvent(estimatedTime: number, tanker: Tanker, processingLine: ProcessingLine): void {
+        this.checkIfEventIsScheduledForPast(estimatedTime);
+        const time = globalTimeProvider.globalTime;
         const event = new TankerEvent(estimatedTime, EventType.StartedRefill, tanker);
         event.processingLine = processingLine;
         logScheduleEvent(
@@ -167,6 +222,7 @@ export class Mediator {
     }
 
     private scheduleTankerFinishedProcessByLineEvent(estimatedTime: number, tanker: Tanker, processingLine: ProcessingLine): void {
+        this.checkIfEventIsScheduledForPast(estimatedTime);
         const event = new TankerEvent(estimatedTime, EventType.FinishedRefill, tanker);
         event.processingLine = processingLine;
         logScheduleEvent(
@@ -177,6 +233,7 @@ export class Mediator {
     }
 
     private scheduleTankerStartedProcessByTowEvent(estimatedTime: number, tanker: Tanker, processingLine: ProcessingLine): void {
+        this.checkIfEventIsScheduledForPast(estimatedTime);
         const event = new TankerEvent(estimatedTime, EventType.HasBeenProcessed, tanker);
         event.processingLine = processingLine;
         logScheduleEvent(`Tanker #${tanker.id} start process by tow event scheduled at ${convertSecondsToHours(estimatedTime)} h.`);
@@ -185,11 +242,13 @@ export class Mediator {
     }
 
     private handleTankerRefill(tow: Tow, tanker: Tanker, processingLine: ProcessingLine) {
+        tanker.processingLine = processingLine;
+        tanker.tow = tow;
         const estimatedTowFreeTime = this._towEventService.calculateNextEventTime();
 
         this.scheduleTowFreeEvent(estimatedTowFreeTime, tow);
         // this.scheduleProcessingLineStartedProcess(estimatedTowFreeTime, tanker, processingLine);
-        this.scheduleTankerStartedProcessByLineEvent(globalTimeProvider.globalTime, tanker, processingLine);
+        this.scheduleTankerStartedProcessByLineEvent(estimatedTowFreeTime, tanker, processingLine);
     }
 
     private handleTankerRefillFinished(tow: Tow, tanker: Tanker, processingLine: ProcessingLine) {
@@ -201,29 +260,50 @@ export class Mediator {
     }
 
     private scheduleNewTankerEvent(estimatedTime: number): void {
+        this.checkIfEventIsScheduledForPast(estimatedTime);
+
         const event = new TankerEvent(estimatedTime, EventType.ArrivedNew, this.tankerGenerator.newInstance());
         this._tankerEventQueue.push(event);
     }
 
     private getClosestEvent(events: PortEvent[]): PortEvent {
-        return events.filter(e => e != null).sort((l, r) => (l.estimatedTime < r.estimatedTime ? -1 : 1))[0];
+        const closestEvent = events.filter(e => e != null).sort((l, r) => (l.estimatedTime < r.estimatedTime ? -1 : 1))[0];
+        return closestEvent;
     }
 
     private getEventsWithEstimatedTime(time: number): PortEvent[] {
         const result: PortEvent[] = [];
 
-        if (this._towEventQueue.first() && this._towEventQueue.first().estimatedTime == time) result.push(this._towEventQueue.pop());
+        if (this._towEventQueue.first() && Math.abs(this._towEventQueue.first().estimatedTime - time) < 5) result.push(this._towEventQueue.pop());
 
-        if (this._processingLineEventQueue.first() && this._processingLineEventQueue.first().estimatedTime == time)
+        if (this._processingLineEventQueue.first() && this._processingLineEventQueue.first().estimatedTime - time < 5)
             result.push(this._processingLineEventQueue.pop());
 
-        if (this._tankerEventQueue.first() && this._tankerEventQueue.first().estimatedTime == time) result.push(this._tankerEventQueue.pop());
+        if (this._tankerEventQueue.first() && Math.abs(this._tankerEventQueue.first().estimatedTime - time) < 5)
+            result.push(this._tankerEventQueue.pop());
 
         return result;
     }
 
     private checkIfAnyEventIsOutdated(events: PortEvent[]): void {
-        if (events.filter(e => e != null && e.estimatedTime < globalTimeProvider.globalTime).length > 0)
-            throw new Error(`Events of following types are outdated: ${events.map(e => typeof e)}!`);
+        if (events.filter(e => e != null && e.estimatedTime < globalTimeProvider.globalTime).length > 0) {
+            const outdatedEvents = _(events)
+                .filter(e => e != null && e.estimatedTime < globalTimeProvider.globalTime)
+                .value();
+
+            throw new Error(`Events of following types are outdated: ${events.map(e => e.estimatedTime)}! Time: ${globalTimeProvider.globalTime} s.`);
+        }
+    }
+
+    private checkIfEventIsScheduledForPast(estimatedTime: number) {
+        if (estimatedTime < globalTimeProvider.globalTime) {
+            throw new Error(`Can't schedule event for the past. Estimated time: ${estimatedTime}, current time: ${globalTimeProvider.globalTime}`);
+        }
+    }
+
+    private checkIfNextEventTimeIsInThePast(nextEventTime: number): void {
+        if (nextEventTime < globalTimeProvider.globalTime) {
+            throw new Error(`Can't change global time to past. New event time: ${nextEventTime}, current time: ${globalTimeProvider.globalTime}.`);
+        }
     }
 }
